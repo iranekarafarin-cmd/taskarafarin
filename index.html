@@ -127,6 +127,12 @@ main{padding:12px; max-width:1100px; margin:0 auto}
   padding:22px; box-shadow:var(--shadow)}
 #authBox h2{text-align:center; margin-bottom:14px}
 #authMsg{font-size:12px; color:var(--bad); margin-top:8px; text-align:center}
+import { GoogleAuthProvider, signInWithPopup }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+<button id="btnGoogle" class="btn" style="background:#fff;color:#333;border:1px solid #ddd;
+  display:flex;align-items:center;gap:8px;justify-content:center;width:100%">
+  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="18"> ورود با گوگل
+</button>
 
 /* دکمه شناور افزودن */
 #fab{position:fixed; bottom:18px; left:18px; width:54px; height:54px; border-radius:50%;
@@ -152,6 +158,10 @@ main{padding:12px; max-width:1100px; margin:0 auto}
   <button class="btn" id="btnLogin">ورود</button>
   <button class="btn gray" id="btnSignup">ثبت‌نام جدید</button>
   <div id="authMsg"></div>
+<button id="btnGoogle" class="btn" style="background:#fff;color:#333;border:1px solid #ddd;
+  display:flex;align-items:center;gap:8px;justify-content:center;width:100%">
+  <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="18"> ورود با گوگل
+</button>
 </div>
 
 <!-- ================= برنامه اصلی (اول مخفی است) ================= -->
@@ -320,6 +330,9 @@ import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, doc, setDoc, onSnapshot }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+  import { GoogleAuthProvider, signInWithPopup }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
 
 // ⬇️⬇️⬇️ این بلوک را با بلوکِ خودتان جایگزین کنید ⬇️⬇️⬇️
 const firebaseConfig = {
@@ -337,6 +350,8 @@ const auth  = getAuth(fbApp);
 import { initializeFirestore, persistentLocalCache, persistentSingleTabManager,
          doc, setDoc, onSnapshot }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { GoogleAuthProvider, signInWithPopup }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 const db = initializeFirestore(app, {
   experimentalAutoDetectLongPolling: true,          // عبور از قطعی‌های شبکه ایران
