@@ -219,6 +219,16 @@ main{padding:12px; max-width:1100px; margin:0 auto}
         <div class="stat" style="color:var(--ok)"><b id="stDone">0</b><span>انجام‌شده</span></div>
       </div>
       <div class="col"><h3>بار کاری اعضا</h3><div id="loadList"></div></div>
+      <div class="card" style="margin-top:16px">
+  <h3>🗂️ پشتیبان‌گیری</h3>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button id="btnExport" class="btn">⬇️ خروجی JSON</button>
+    <button id="btnImport" class="btn ghost">⬆️ بازیابی از فایل</button>
+    <input type="file" id="importFile" accept=".json" hidden>
+  </div>
+</div>
+<footer id="appFooter" style="text-align:center;color:var(--muted);font-size:11px;padding:14px"></footer>
+
     </section>
 
     <!-- ===== تب تیم ===== -->
