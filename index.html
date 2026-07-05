@@ -1,962 +1,439 @@
-/* ============================================================
-   وضعیت سراسری برنامه
-   ============================================================ */
-let UID = null;              // شناسه کاربر لاگین‌شده
-let TASKS = {};              // همه وظایف: { id: {...} }
-let MEMBERS = {};            // اعضای تیم: { id: {name} }
-let unsubTasks = null;       // تابع قطع اتصال لایو وظایف
-let unsubMembers = null;     // تابع قطع اتصال لایو اعضا
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تسک‌آفرین ۶</title>
 
-let editId = null;           // اگر مودال در حالت ویرایش باشد
-let editSubs = [];           // زیروظیفه‌های در حال ویرایش
-let selImportance = 3;       // اهمیت انتخاب‌شده در مودال
-let selUrgency = 3;          // فوریت انتخاب‌شده در مودال
-
-let calYear, calMonth;       // سال و ماه جاری تقویم شمسی
-[calYear, calMonth] = todayJ();
-
-/* ابزارهای کمکی */
-const $ = (id) => document.getElementById(id);
-
-function toast(message) {
-  const el = $("toast");
-  el.textContent = message;
-  el.classList.add("show");
-  setTimeout(() => el.classList.remove("show"), 2500);
+<style>
+/* ---------- متغیرهای رنگ (تم روشن) ---------- */
+:root{
+  --bg:#f1f5f9; --card:#ffffff; --text:#1e293b; --muted:#64748b;
+  --line:#e2e8f0; --brand:#4f46e5; --brand2:#6366f1;
+  --ok:#16a34a; --warn:#d97706; --bad:#dc2626; --shadow:0 2px 8px rgba(0,0,0,.08);
+}
+/* ---------- تم تاریک ---------- */
+[data-theme="dark"]{
+  --bg:#0f172a; --card:#1e293b; --text:#e2e8f0; --muted:#94a3b8;
+  --line:#334155; --brand:#818cf8; --brand2:#6366f1; --shadow:0 2px 8px rgba(0,0,0,.4);
 }
 
-/* جلوگیری از تزریق HTML در عناوین */
-function esc(str) {
-  return (str || "").replace(/[<>&"]/g, (c) => ({
-    "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;"
-  }[c]));
+*{box-sizing:border-box; margin:0; padding:0; font-family:Tahoma,"Segoe UI",sans-serif}
+body{background:var(--bg); color:var(--text); min-height:100vh; transition:background .3s}
+
+/* ---------- سربرگ ---------- */
+header{background:var(--brand); color:#fff; padding:10px 14px; display:flex;
+  align-items:center; gap:8px; flex-wrap:wrap; position:sticky; top:0; z-index:50}
+header h1{font-size:18px; flex:1}
+header button{background:rgba(255,255,255,.18); border:none; color:#fff;
+  padding:7px 12px; border-radius:8px; cursor:pointer; font-size:13px}
+header button:hover{background:rgba(255,255,255,.3)}
+
+/* ---------- تب‌ها ---------- */
+nav{display:flex; gap:4px; background:var(--card); padding:6px; overflow-x:auto;
+  border-bottom:1px solid var(--line); position:sticky; top:48px; z-index:40}
+nav button{flex:1; min-width:70px; border:none; background:none; color:var(--muted);
+  padding:9px 6px; border-radius:8px; cursor:pointer; font-size:13px; white-space:nowrap}
+nav button.active{background:var(--brand); color:#fff}
+
+/* ---------- بخش‌ها ---------- */
+main{padding:12px; max-width:1100px; margin:0 auto}
+.tab{display:none}
+.tab.show{display:block}
+
+/* ---------- نوار جستجو و فیلتر ---------- */
+.toolbar{display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap}
+.toolbar input,.toolbar select{padding:8px 10px; border:1px solid var(--line);
+  border-radius:8px; background:var(--card); color:var(--text); font-size:13px}
+.toolbar input{flex:1; min-width:140px}
+
+/* ---------- بورد ---------- */
+.board{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px}
+.col{background:var(--card); border-radius:12px; padding:10px; box-shadow:var(--shadow);
+  min-height:120px}
+.col h3{font-size:14px; margin-bottom:8px; display:flex; justify-content:space-between}
+.col .cnt{background:var(--line); border-radius:10px; padding:0 8px; font-size:12px}
+.col.dragover{outline:2px dashed var(--brand)}
+
+/* ---------- کارت وظیفه ---------- */
+.task{background:var(--bg); border:1px solid var(--line); border-right:4px solid var(--brand);
+  border-radius:10px; padding:9px; margin-bottom:8px; cursor:grab; font-size:13px}
+.task:active{cursor:grabbing}
+.task .t-title{font-weight:bold; margin-bottom:4px}
+.task .t-meta{display:flex; gap:6px; flex-wrap:wrap; font-size:11px; color:var(--muted)}
+.task.overdue{border-right-color:var(--bad)}
+.task.done{opacity:.55; text-decoration:line-through}
+
+/* برچسب رنگی */
+.tag{padding:1px 8px; border-radius:10px; font-size:11px; color:#fff}
+
+/* نوار پیشرفت زیروظیفه */
+.prog{height:5px; background:var(--line); border-radius:5px; margin-top:6px; overflow:hidden}
+.prog>div{height:100%; background:var(--ok); transition:width .3s}
+
+/* دکمه‌های ریز روی کارت */
+.t-btns{display:flex; gap:4px; margin-top:6px}
+.t-btns button{border:none; background:var(--line); color:var(--text); border-radius:6px;
+  padding:3px 8px; font-size:11px; cursor:pointer}
+
+/* ---------- ماتریس آیزنهاور ---------- */
+.matrix{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+.quad{background:var(--card); border-radius:12px; padding:10px; box-shadow:var(--shadow); min-height:130px}
+.quad h4{font-size:13px; margin-bottom:8px}
+.q1 h4{color:var(--bad)} .q2 h4{color:var(--brand)}
+.q3 h4{color:var(--warn)} .q4 h4{color:var(--muted)}
+
+/* ---------- تقویم ---------- */
+.cal-head{display:flex; justify-content:space-between; align-items:center; margin-bottom:8px}
+.cal-head button{border:none; background:var(--brand); color:#fff; border-radius:8px;
+  padding:6px 14px; cursor:pointer}
+.cal{display:grid; grid-template-columns:repeat(7,1fr); gap:4px}
+.cal .dow{text-align:center; font-size:11px; color:var(--muted); padding:4px}
+.day{background:var(--card); border:1px solid var(--line); border-radius:8px;
+  min-height:64px; padding:4px; font-size:11px; cursor:pointer}
+.day.today{border:2px solid var(--brand)}
+.day .dnum{font-weight:bold; margin-bottom:2px}
+.day .dot{background:var(--brand2); color:#fff; border-radius:6px; padding:1px 4px;
+  margin-top:2px; display:block; overflow:hidden; white-space:nowrap; text-overflow:ellipsis}
+
+/* ---------- داشبورد ---------- */
+.stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin-bottom:12px}
+.stat{background:var(--card); border-radius:12px; padding:14px; text-align:center; box-shadow:var(--shadow)}
+.stat b{font-size:26px; display:block}
+.stat span{font-size:12px; color:var(--muted)}
+
+/* ---------- فرم و مودال ---------- */
+.overlay{display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:100;
+  align-items:center; justify-content:center; padding:12px}
+.overlay.show{display:flex}
+.modal{background:var(--card); border-radius:14px; padding:16px; width:100%;
+  max-width:440px; max-height:88vh; overflow-y:auto}
+.modal h3{margin-bottom:12px; font-size:16px}
+.modal label{display:block; font-size:12px; color:var(--muted); margin:8px 0 3px}
+.modal input,.modal select,.modal textarea{width:100%; padding:9px; border:1px solid var(--line);
+  border-radius:8px; background:var(--bg); color:var(--text); font-size:13px}
+.row2{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.btn{width:100%; padding:11px; border:none; border-radius:9px; background:var(--brand);
+  color:#fff; font-size:14px; cursor:pointer; margin-top:12px}
+.btn.gray{background:var(--muted)}
+.btn.red{background:var(--bad)}
+
+/* لیست زیروظیفه در مودال */
+.sublist{margin-top:6px}
+.sublist div{display:flex; align-items:center; gap:6px; padding:4px 0; font-size:13px}
+
+/* ---------- صفحه ورود ---------- */
+#authBox{max-width:360px; margin:60px auto; background:var(--card); border-radius:14px;
+  padding:22px; box-shadow:var(--shadow)}
+#authBox h2{text-align:center; margin-bottom:14px}
+#authMsg{font-size:12px; color:var(--bad); margin-top:8px; text-align:center}
+
+/* دکمه شناور افزودن */
+#fab{position:fixed; bottom:18px; left:18px; width:54px; height:54px; border-radius:50%;
+  border:none; background:var(--brand); color:#fff; font-size:26px; cursor:pointer;
+  box-shadow:0 4px 12px rgba(0,0,0,.3); z-index:60}
+
+/* موبایل */
+@media(max-width:600px){
+  .matrix{grid-template-columns:1fr}
+  header h1{font-size:15px}
+}
+</style>
+</head>
+<body>
+
+<!-- ================= صفحه ورود ================= -->
+<div id="authBox">
+  <h2>🗂️ تسک‌آفرین ۶</h2>
+  <label>ایمیل</label>
+  <input id="aEmail" type="email" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)">
+  <label style="display:block;margin-top:8px">رمز عبور (حداقل ۶ حرف)</label>
+  <input id="aPass" type="password" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)">
+  <button class="btn" id="btnLogin">ورود</button>
+  <button class="btn gray" id="btnSignup">ثبت‌نام جدید</button>
+  <div id="authMsg"></div>
+</div>
+
+<!-- ================= برنامه اصلی (اول مخفی است) ================= -->
+<div id="app" style="display:none">
+
+  <header>
+    <h1>🗂️ تسک‌آفرین ۶</h1>
+    <button id="btnTheme" title="تغییر تم">🌙</button>
+    <button id="btnNotif" title="فعال‌سازی یادآور">🔔</button>
+    <button id="btnCsv">📄 خروجی</button>
+    <button id="btnLogout">خروج</button>
+  </header>
+
+  <nav>
+    <button data-tab="board" class="active">📋 بورد</button>
+    <button data-tab="matrix">🎯 ماتریس</button>
+    <button data-tab="cal">📅 تقویم</button>
+    <button data-tab="dash">📊 داشبورد</button>
+    <button data-tab="team">👥 تیم</button>
+    <button data-tab="arch">🗃️ آرشیو</button>
+  </nav>
+
+  <main>
+
+    <!-- ===== تب بورد ===== -->
+    <section class="tab show" id="tab-board">
+      <div class="toolbar">
+        <input id="srch" placeholder="🔍 جستجو...">
+        <select id="fltMember"><option value="">همه اعضا</option></select>
+        <select id="fltTag"><option value="">همه برچسب‌ها</option></select>
+      </div>
+      <div class="board">
+        <div class="col" data-st="todo"><h3>در انتظار <span class="cnt" id="c-todo">0</span></h3><div class="drop" id="l-todo"></div></div>
+        <div class="col" data-st="doing"><h3>در حال انجام <span class="cnt" id="c-doing">0</span></h3><div class="drop" id="l-doing"></div></div>
+        <div class="col" data-st="done"><h3>انجام شده <span class="cnt" id="c-done">0</span></h3><div class="drop" id="l-done"></div></div>
+      </div>
+    </section>
+
+    <!-- ===== تب ماتریس آیزنهاور ===== -->
+    <section class="tab" id="tab-matrix">
+      <div class="matrix">
+        <div class="quad q1"><h4>🔴 مهم و فوری — همین حالا</h4><div id="q1"></div></div>
+        <div class="quad q2"><h4>🔵 مهم و غیرفوری — برنامه‌ریزی</h4><div id="q2"></div></div>
+        <div class="quad q3"><h4>🟡 فوری و کم‌اهمیت — واگذاری</h4><div id="q3"></div></div>
+        <div class="quad q4"><h4>⚪ نه مهم نه فوری — حذف</h4><div id="q4"></div></div>
+      </div>
+    </section>
+
+    <!-- ===== تب تقویم شمسی ===== -->
+    <section class="tab" id="tab-cal">
+      <div class="cal-head">
+        <button id="calPrev">◀ قبل</button>
+        <b id="calTitle"></b>
+        <button id="calNext">بعد ▶</button>
+      </div>
+      <div class="cal" id="calGrid"></div>
+    </section>
+
+    <!-- ===== تب داشبورد ===== -->
+    <section class="tab" id="tab-dash">
+      <div class="stats">
+        <div class="stat"><b id="stAll">0</b><span>کل وظایف فعال</span></div>
+        <div class="stat"><b id="stToday">0</b><span>موعد امروز</span></div>
+        <div class="stat" style="color:var(--bad)"><b id="stLate">0</b><span>عقب‌افتاده</span></div>
+        <div class="stat" style="color:var(--ok)"><b id="stDone">0</b><span>انجام‌شده</span></div>
+      </div>
+      <div class="col"><h3>بار کاری اعضا</h3><div id="loadList"></div></div>
+    </section>
+
+    <!-- ===== تب تیم ===== -->
+    <section class="tab" id="tab-team">
+      <div class="col">
+        <h3>اعضای تیم</h3>
+        <div class="toolbar" style="margin-top:8px">
+          <input id="memName" placeholder="نام عضو جدید">
+          <button class="btn" style="width:auto;margin:0;padding:8px 16px" id="btnAddMem">افزودن</button>
+        </div>
+        <div id="memList"></div>
+      </div>
+    </section>
+
+    <!-- ===== تب آرشیو ===== -->
+    <section class="tab" id="tab-arch">
+      <div class="col">
+        <h3>وظایف بایگانی‌شده</h3>
+        <div id="archList"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <button id="fab">+</button>
+</div>
+
+<!-- ================= مودال افزودن/ویرایش وظیفه ================= -->
+<div class="overlay" id="ovTask">
+  <div class="modal">
+    <h3 id="mTitle">وظیفه جدید</h3>
+
+    <label>عنوان *</label>
+    <input id="fTitle">
+
+    <label>توضیحات</label>
+    <textarea id="fDesc" rows="2"></textarea>
+
+    <div class="row2">
+      <div><label>موعد (تاریخ شمسی)</label><input id="fDue" placeholder="1405/04/20"></div>
+      <div><label>مسئول</label><select id="fMember"><option value="">—</option></select></div>
+    </div>
+
+    <div class="row2">
+      <div><label>اهمیت (۱ تا ۵)</label>
+        <select id="fImp"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div>
+      <div><label>فوریت (۱ تا ۵)</label>
+        <select id="fUrg"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select></div>
+    </div>
+
+    <div class="row2">
+      <div><label>برچسب</label>
+        <select id="fTag">
+          <option value="">بدون برچسب</option>
+          <option value="کاری">🔵 کاری</option>
+          <option value="شخصی">🟢 شخصی</option>
+          <option value="جلسه">🟣 جلسه</option>
+          <option value="خرید">🟠 خرید</option>
+          <option value="فوری">🔴 فوری</option>
+        </select></div>
+      <div><label>تکرار</label>
+        <select id="fRep">
+          <option value="">بدون تکرار</option>
+          <option value="d">روزانه</option>
+          <option value="w">هفتگی</option>
+          <option value="m">ماهانه</option>
+        </select></div>
+    </div>
+
+    <label>زیروظیفه‌ها</label>
+    <div class="toolbar" style="margin:0">
+      <input id="fSubIn" placeholder="مورد جدید + Enter">
+    </div>
+    <div class="sublist" id="fSubList"></div>
+
+    <button class="btn" id="btnSave">💾 ذخیره</button>
+    <button class="btn red" id="btnDel" style="display:none">🗑️ حذف</button>
+    <button class="btn gray" id="btnClose">بستن</button>
+  </div>
+</div>
+
+<script type="module">
+// ================================================================
+// گام ۳ : اتصال Firebase + ورود و ثبت‌نام + تب‌ها + تم تاریک
+// ================================================================
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+         onAuthStateChanged, signOut }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getFirestore, doc, setDoc, onSnapshot }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+// ⬇️⬇️⬇️ این بلوک را با بلوکِ خودتان جایگزین کنید ⬇️⬇️⬇️
+const firebaseConfig = {
+  apiKey: "AIzaXXXXXXXXXXXXXXXXXXXXXXXX",
+  authDomain: "XXXX.firebaseapp.com",
+  projectId: "XXXX",
+  storageBucket: "XXXX.appspot.com",
+  messagingSenderId: "0000000000",
+  appId: "1:0000:web:0000"
+};
+// ⬆️⬆️⬆️ این بلوک را با بلوکِ خودتان جایگزین کنید ⬆️⬆️⬆️
+
+const fbApp = initializeApp(firebaseConfig);
+const auth  = getAuth(fbApp);
+const db    = getFirestore(fbApp);
+
+// ---------- داده‌های برنامه (در حافظه) ----------
+let DATA = { tasks: [], members: [], archive: [] };
+let UID = null;          // شناسه کاربر
+let unsub = null;        // قطع‌کننده گوش‌دادن به دیتابیس
+
+// ---------- ابزار کوچک ----------
+const $ = id => document.getElementById(id);
+const authMsg = t => { $("authMsg").textContent = t; };
+
+// ترجمه خطاهای Firebase به فارسی
+function faErr(code){
+  const m = {
+    "auth/invalid-email":"ایمیل نامعتبر است",
+    "auth/missing-password":"رمز عبور را وارد کنید",
+    "auth/weak-password":"رمز حداقل ۶ حرف باشد",
+    "auth/email-already-in-use":"این ایمیل قبلاً ثبت شده — دکمه ورود را بزنید",
+    "auth/invalid-credential":"ایمیل یا رمز اشتباه است",
+    "auth/user-not-found":"کاربری با این ایمیل نیست — ثبت‌نام کنید",
+    "auth/wrong-password":"رمز اشتباه است",
+    "auth/network-request-failed":"اینترنت وصل نیست یا فیلترشکن لازم است",
+    "auth/too-many-requests":"تلاش زیاد؛ چند دقیقه صبر کنید",
+    "auth/operation-not-allowed":"در کنسول Firebase روش Email/Password را فعال کنید"
+  };
+  return m[code] || ("خطا: " + code);
 }
 
-/* کلید تاریخ امروز به شکل 1405-04-14 برای مقایسه رشته‌ای */
-function todayKey() {
-  const [y, m, d] = todayJ();
-  return jKey(y, m, d);
-}
-
-/* ============================================================
-   احراز هویت (Firebase Auth)
-   ============================================================ */
-window.doLogin = async () => {
-  const email = $("aEmail").value.trim();
-  const pass  = $("aPass").value;
-
-  if (!email || !pass) {
-    toast("ایمیل و رمز عبور را وارد کنید");
-    return;
-  }
-
+// ---------- ثبت‌نام ----------
+$("btnSignup").onclick = async () => {
+  authMsg("⏳ در حال ثبت‌نام...");
   try {
-    await signInWithEmailAndPassword(auth, email, pass);
-  } catch (err) {
-    toast("خطا در ورود: ایمیل یا رمز نادرست است");
-  }
+    await createUserWithEmailAndPassword(auth, $("aEmail").value.trim(), $("aPass").value);
+  } catch(e){ authMsg(faErr(e.code)); }
 };
 
-window.doRegister = async () => {
-  const email = $("aEmail").value.trim();
-  const pass  = $("aPass").value;
-
-  if (pass.length < 6) {
-    toast("رمز عبور باید حداقل ۶ کاراکتر باشد");
-    return;
-  }
-
+// ---------- ورود ----------
+$("btnLogin").onclick = async () => {
+  authMsg("⏳ در حال ورود...");
   try {
-    await createUserWithEmailAndPassword(auth, email, pass);
-    toast("حساب شما ساخته شد ✅");
-  } catch (err) {
-    if (err.code === "auth/email-already-in-use") {
-      toast("این ایمیل قبلاً ثبت شده — از دکمه ورود استفاده کنید");
-    } else {
-      toast("ثبت‌نام ناموفق بود");
-    }
-  }
+    await signInWithEmailAndPassword(auth, $("aEmail").value.trim(), $("aPass").value);
+  } catch(e){ authMsg(faErr(e.code)); }
 };
 
-window.doLogout = () => {
-  if (confirm("از حساب خارج می‌شوید؟")) signOut(auth);
-};
+// ---------- خروج ----------
+$("btnLogout").onclick = () => signOut(auth);
 
-/* واکنش به تغییر وضعیت ورود/خروج */
-onAuthStateChanged(auth, (user) => {
+// ---------- رصد وضعیت ورود ----------
+onAuthStateChanged(auth, user => {
   if (user) {
     UID = user.uid;
-    $("authScreen").style.display = "none";
-    $("appScreen").style.display  = "block";
-    startSync();
+    $("authBox").style.display = "none";
+    $("app").style.display = "block";
+    listenData();               // گوش دادن زنده به دیتابیس
   } else {
     UID = null;
-    stopSync();
-    $("authScreen").style.display = "flex";
-    $("appScreen").style.display  = "none";
+    if (unsub) { unsub(); unsub = null; }
+    $("authBox").style.display = "block";
+    $("app").style.display = "none";
+    authMsg("");
   }
 });
 
-/* ============================================================
-   همگام‌سازی زنده با Firestore
-   هر تغییری (حتی از دستگاه دیگر) فوراً رابط را به‌روز می‌کند
-   ============================================================ */
-function startSync() {
-  unsubTasks = onSnapshot(
-    query(collection(db, "users", UID, "tasks")),
-    (snap) => {
-      TASKS = {};
-      snap.forEach((d) => (TASKS[d.id] = d.data()));
-      renderAll();
-    },
-    () => toast("خطا در اتصال به سرور — اتصال اینترنت را بررسی کنید")
-  );
-
-  unsubMembers = onSnapshot(
-    query(collection(db, "users", UID, "members")),
-    (snap) => {
-      MEMBERS = {};
-      snap.forEach((d) => (MEMBERS[d.id] = d.data()));
-      renderAll();
-    }
-  );
+// ---------- همگام‌سازی با Firestore ----------
+function listenData(){
+  unsub = onSnapshot(doc(db, "users", UID), snap => {
+    if (snap.exists()) DATA = Object.assign({tasks:[],members:[],archive:[]}, snap.data());
+    renderAll();                // تابع اصلی رسم — در گام ۴ ساخته می‌شود
+  });
 }
 
-function stopSync() {
-  if (unsubTasks)   unsubTasks();
-  if (unsubMembers) unsubMembers();
-  TASKS = {};
-  MEMBERS = {};
+// ذخیره داده‌ها در ابر (بعد از هر تغییر صدا زده می‌شود)
+async function save(){
+  renderAll();
+  try { await setDoc(doc(db, "users", UID), DATA); }
+  catch(e){ console.log("خطای ذخیره:", e); }
 }
 
-/* ذخیره یک وظیفه (ایجاد یا به‌روزرسانی) */
-async function persistTask(id, data) {
-  try {
-    await setDoc(doc(db, "users", UID, "tasks", id), data);
-  } catch (err) {
-    toast("ذخیره ناموفق بود — دوباره تلاش کنید");
-    throw err;
-  }
-}
-
-/* ============================================================
-   ناوبری بین تب‌ها
-   ============================================================ */
-window.showTab = (name, btn) => {
-  document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
-  document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
-
-  $("p-" + name).classList.add("active");
-  if (btn) btn.classList.add("active");
-
-  if (name === "cal")   renderCalendar();
-  if (name === "focus") fillFocusSelect();
-};
-/* ============================================================
-   مودال وظیفه — باز کردن، ساخت فرم، ذخیره و حذف
-   ============================================================ */
-
-/* ساخت ردیف امتیازدهی ۱ تا ۵ (اهمیت / فوریت) */
-function buildRateRow(rowId, currentValue, onSelect) {
-  const row = $(rowId);
-  row.innerHTML = "";
-
-  for (let i = 1; i <= 5; i++) {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = i;
-    btn.className = "rate" + (i === currentValue ? " sel" : "");
-    btn.onclick = () => {
-      onSelect(i);
-      buildRateRow(rowId, i, onSelect); // بازسازی برای نمایش انتخاب جدید
-    };
-    row.appendChild(btn);
-  }
-}
-
-/* پر کردن سلکت‌های روز و ماه شمسی در فرم
-   اگر dueKey داده شود (حالت ویرایش)، همان تاریخ انتخاب می‌شود */
-function fillDateSelects(dueKey) {
-  const [tYear, tMonth, tDay] = todayJ();
-  let selYear = tYear, selMonth = tMonth, selDay = tDay;
-
-  if (dueKey) {
-    const parts = dueKey.split("-").map(Number);
-    selYear = parts[0];
-    selMonth = parts[1];
-    selDay = parts[2];
-  }
-
-  /* سلکت ماه */
-  $("fMonth").innerHTML = JMONTHS.map((name, idx) => {
-    const val = idx + 1;
-    const sel = val === selMonth ? "selected" : "";
-    return `<option value="${val}" ${sel}>${name}</option>`;
-  }).join("");
-
-  /* سلکت روز — تعداد روزها به ماه بستگی دارد */
-  const refreshDays = () => {
-    const month = Number($("fMonth").value);
-    const len = jDayLen(selYear, month);
-    let html = "";
-    for (let d = 1; d <= len; d++) {
-      html += `<option ${d === selDay ? "selected" : ""}>${d}</option>`;
-    }
-    $("fDay").innerHTML = html;
+// ---------- سوییچ تب‌ها ----------
+document.querySelectorAll("nav button").forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll("nav button").forEach(x => x.classList.remove("active"));
+    document.querySelectorAll(".tab").forEach(x => x.classList.remove("show"));
+    b.classList.add("active");
+    $("tab-" + b.dataset.tab).classList.add("show");
   };
+});
 
-  $("fMonth").onchange = refreshDays;
-  refreshDays();
+// ---------- تم تاریک/روشن ----------
+$("btnTheme").onclick = () => {
+  const dark = document.documentElement.dataset.theme === "dark";
+  document.documentElement.dataset.theme = dark ? "" : "dark";
+  $("btnTheme").textContent = dark ? "🌙" : "☀️";
+  localStorage.setItem("theme", dark ? "" : "dark");
+};
+// بازیابی تم ذخیره‌شده هنگام باز شدن صفحه
+if (localStorage.getItem("theme") === "dark") {
+  document.documentElement.dataset.theme = "dark";
+  $("btnTheme").textContent = "☀️";
 }
 
-/* باز کردن مودال — بدون آرگومان: وظیفه جدید، با id: ویرایش */
-window.openTask = (id = null) => {
-  editId = id;
-  const task = id ? TASKS[id] : null;
+// تابع موقت تا گام ۴ نیامده خطا نگیریم
+function renderAll(){ if (window._render) window._render(); }
 
-  $("tmTitle").textContent = task ? "ویرایش وظیفه" : "وظیفه جدید";
-  $("fTitle").value  = task ? task.title : "";
-  $("fDesc").value   = task ? (task.desc || "") : "";
-  $("fRepeat").value = task ? (task.repeat || "") : "";
+// ===== گام ۴ اینجا =====
 
-  /* کپی عمیق زیروظیفه‌ها تا قبل از ذخیره، اصل داده دست نخورد */
-  editSubs = task ? JSON.parse(JSON.stringify(task.subs || [])) : [];
+// ===== گام ۵ اینجا =====
 
-  selImportance = task ? task.imp : 3;
-  selUrgency    = task ? task.urg : 3;
-  buildRateRow("impRow", selImportance, (v) => (selImportance = v));
-  buildRateRow("urgRow", selUrgency,    (v) => (selUrgency = v));
+// ===== گام ۶ اینجا =====
+</script>
 
-  /* سلکت مسئول از لیست اعضای تیم */
-  let options = `<option value="">— بدون مسئول —</option>`;
-  for (const [key, m] of Object.entries(MEMBERS)) {
-    const sel = task && task.assignee === key ? "selected" : "";
-    options += `<option value="${key}" ${sel}>${esc(m.name)}</option>`;
-  }
-  $("fAssignee").innerHTML = options;
-
-  fillDateSelects(task ? task.due : null);
-  renderSubList();
-
-  $("delBtn").style.display = id ? "block" : "none";
-  $("taskModal").classList.add("open");
-};
-
-window.closeModal = () => $("taskModal").classList.remove("open");
-
-/* ============================================================
-   زیروظیفه‌ها در مودال
-   ============================================================ */
-function renderSubList() {
-  if (editSubs.length === 0) {
-    $("subList").innerHTML =
-      `<p style="color:var(--dim);font-size:12px">زیروظیفه‌ای ندارد</p>`;
-    return;
-  }
-
-  $("subList").innerHTML = editSubs.map((sub, i) => {
-    const doneStyle = sub.done
-      ? "text-decoration:line-through;color:var(--dim)"
-      : "";
-    return `
-      <div class="sub-item">
-        <input type="checkbox" ${sub.done ? "checked" : ""}
-               onchange="window._toggleSub(${i})">
-        <span style="${doneStyle}">${esc(sub.text)}</span>
-        <button class="icon-btn" onclick="window._deleteSub(${i})">✕</button>
-      </div>`;
-  }).join("");
-}
-
-window._toggleSub = (i) => {
-  editSubs[i].done = !editSubs[i].done;
-  renderSubList();
-};
-
-window._deleteSub = (i) => {
-  editSubs.splice(i, 1);
-  renderSubList();
-};
-
-window.addSub = () => {
-  const text = $("subInput").value.trim();
-  if (!text) return;
-  editSubs.push({ text: text, done: false });
-  $("subInput").value = "";
-  renderSubList();
-};
-
-/* ============================================================
-   ذخیره و حذف وظیفه
-   ============================================================ */
-window.saveTask = async () => {
-  const title = $("fTitle").value.trim();
-  if (!title) {
-    toast("عنوان وظیفه الزامی است");
-    return;
-  }
-
-  const [thisYear] = todayJ();
-  const dueKey = jKey(thisYear, Number($("fMonth").value), Number($("fDay").value));
-
-  const id  = editId || ("t" + Date.now());
-  const old = editId ? TASKS[editId] : {};
-
-  await persistTask(id, {
-    title:    title,
-    desc:     $("fDesc").value.trim(),
-    due:      dueKey,
-    assignee: $("fAssignee").value,
-    imp:      selImportance,
-    urg:      selUrgency,
-    repeat:   $("fRepeat").value,
-    subs:     editSubs,
-    done:     old.done    || false,
-    doneAt:   old.doneAt  || null,
-    created:  old.created || Date.now()
-  });
-
-  closeModal();
-  toast("ذخیره شد ✅");
-};
-
-window.deleteTask = async () => {
-  if (!editId) return;
-  if (!confirm("این وظیفه برای همیشه حذف شود؟")) return;
-
-  await deleteDoc(doc(db, "users", UID, "tasks", editId));
-  closeModal();
-  toast("حذف شد 🗑️");
-};
-
-/* ============================================================
-   تکمیل وظیفه + منطق تکرارشونده
-   وقتی وظیفه تکرارشونده تیک می‌خورد، نسخه دوره بعد
-   به‌صورت خودکار با زیروظیفه‌های ریست‌شده ساخته می‌شود
-   ============================================================ */
-window.toggleDone = async (id, event) => {
-  event.stopPropagation(); // جلوگیری از باز شدن مودال ویرایش
-  const task = TASKS[id];
-  const nowDone = !task.done;
-
-  await persistTask(id, {
-    ...task,
-    done:   nowDone,
-    doneAt: nowDone ? Date.now() : null
-  });
-
-  /* اگر تکرارشونده است و همین الآن تکمیل شد → دوره بعد را بساز */
-  if (nowDone && task.repeat) {
-    /* تبدیل سررسید شمسی به میلادی برای محاسبه دقیق دوره بعد */
-    const [jy, jm, jd] = task.due.split("-").map(Number);
-    const [gy, gm, gd] = j2g(jy, jm, jd);
-    const gDate = new Date(gy, gm - 1, gd);
-
-    if (task.repeat === "daily")   gDate.setDate(gDate.getDate() + 1);
-    if (task.repeat === "weekly")  gDate.setDate(gDate.getDate() + 7);
-    if (task.repeat === "monthly") gDate.setMonth(gDate.getMonth() + 1);
-
-    /* برگشت به شمسی */
-    const [ny, nm, nd] = g2j(
-      gDate.getFullYear(), gDate.getMonth() + 1, gDate.getDate()
-    );
-
-    await persistTask("t" + Date.now() + "r", {
-      ...task,
-      due:     jKey(ny, nm, nd),
-      done:    false,
-      doneAt:  null,
-      created: Date.now(),
-      subs:    (task.subs || []).map((s) => ({ ...s, done: false }))
-    });
-
-    toast("🔁 وظیفه دوره بعد ساخته شد");
-  }
-};
-/* ============================================================
-   ابزارهای رندر مشترک
-   ============================================================ */
-
-/* تعیین ربع ماتریس آیزنهاور بر اساس اهمیت و فوریت
-   ربع ۱: انجام فوری | ربع ۲: برنامه‌ریزی
-   ربع ۳: واگذاری    | ربع ۴: حذف/تعویق */
-function quadrantOf(task) {
-  const important = task.imp >= 4;
-  const urgent    = task.urg >= 4;
-
-  if (important && urgent)  return 1;
-  if (important)            return 2;
-  if (urgent)               return 3;
-  return 4;
-}
-
-/* ساخت HTML کارت یک وظیفه
-   mini = true → نسخه کوچک برای ماتریس و تقویم */
-function taskCard(id, task, mini = false) {
-  const today = todayKey();
-  const isLate  = !task.done && task.due < today;   // عقب‌افتاده
-  const isToday = !task.done && task.due === today; // سررسید امروز
-
-  /* نوار پیشرفت زیروظیفه‌ها */
-  const subs = task.subs || [];
-  const doneCount = subs.filter((s) => s.done).length;
-  let progressHtml = "";
-
-  if (subs.length > 0 && !mini) {
-    const pct = Math.round((doneCount / subs.length) * 100);
-    progressHtml = `
-      <div class="prog-wrap">
-        <div class="prog-bar" style="width:${pct}%"></div>
-      </div>
-      <span class="prog-txt">${doneCount}/${subs.length} زیروظیفه</span>`;
-  }
-
-  /* برچسب مسئول */
-  let assigneeHtml = "";
-  if (task.assignee && MEMBERS[task.assignee]) {
-    assigneeHtml =
-      `<span class="chip">👤 ${esc(MEMBERS[task.assignee].name)}</span>`;
-  }
-
-  /* برچسب سررسید با رنگ وضعیت */
-  let dueClass = "";
-  let dueText  = "📅 " + jLabel(task.due);
-  if (isLate)  { dueClass = "late";  dueText = "⏰ عقب‌افتاده — " + jLabel(task.due); }
-  if (isToday) { dueClass = "today"; dueText = "🔔 امروز"; }
-
-  /* برچسب تکرار */
-  const repeatLabels = { daily: "🔁 روزانه", weekly: "🔁 هفتگی", monthly: "🔁 ماهانه" };
-  const repeatHtml = task.repeat
-    ? `<span class="chip">${repeatLabels[task.repeat]}</span>`
-    : "";
-
-  const doneClass = task.done ? " done" : "";
-  const miniClass = mini ? " mini" : "";
-
-  return `
-    <div class="card${doneClass}${miniClass}" onclick="openTask('${id}')">
-      <div class="card-top">
-        <input type="checkbox" ${task.done ? "checked" : ""}
-               onclick="toggleDone('${id}', event)">
-        <span class="card-title">${esc(task.title)}</span>
-      </div>
-      ${mini ? "" : `
-      <div class="card-meta">
-        <span class="chip ${dueClass}">${dueText}</span>
-        ${assigneeHtml}
-        ${repeatHtml}
-      </div>
-      ${progressHtml}`}
-    </div>`;
-}
-
-/* مرتب‌سازی هوشمند: اول عقب‌افتاده‌ها، بعد نزدیک‌ترین سررسید،
-   در تساوی سررسید → اولویت با نمره (اهمیت + فوریت) بالاتر */
-function sortTasks(entries) {
-  return entries.sort(([, a], [, b]) => {
-    if (a.due !== b.due) return a.due < b.due ? -1 : 1;
-    return (b.imp + b.urg) - (a.imp + a.urg);
-  });
-}
-
-/* ============================================================
-   رندر بورد اصلی (تب وظایف)
-   سه گروه: باز، تکمیل‌شده امروز، آرشیو
-   ============================================================ */
-function renderBoard() {
-  const container = $("boardList");
-  const entries = Object.entries(TASKS);
-
-  if (entries.length === 0) {
-    container.innerHTML = `
-      <div class="empty">
-        <p>📋 هنوز وظیفه‌ای ندارید</p>
-        <p style="font-size:12px;color:var(--dim)">با دکمه + شروع کنید</p>
-      </div>`;
-    return;
-  }
-
-  const open = sortTasks(entries.filter(([, t]) => !t.done));
-  const done = entries
-    .filter(([, t]) => t.done)
-    .sort(([, a], [, b]) => (b.doneAt || 0) - (a.doneAt || 0));
-
-  let html = "";
-
-  if (open.length > 0) {
-    html += `<h3 class="group-title">🎯 وظایف باز (${open.length})</h3>`;
-    html += open.map(([id, t]) => taskCard(id, t)).join("");
-  }
-
-  if (done.length > 0) {
-    html += `<h3 class="group-title">✅ تکمیل‌شده (${done.length})</h3>`;
-    /* فقط ۱۰ مورد اخیر تا صفحه شلوغ نشود */
-    html += done.slice(0, 10).map(([id, t]) => taskCard(id, t)).join("");
-
-    if (done.length > 10) {
-      html += `<p style="color:var(--dim);font-size:12px;text-align:center">
-                 و ${done.length - 10} مورد قدیمی‌تر...</p>`;
-    }
-  }
-
-  container.innerHTML = html;
-}
-
-/* ============================================================
-   رندر ماتریس آیزنهاور
-   فقط وظایف باز نمایش داده می‌شوند
-   ============================================================ */
-function renderMatrix() {
-  /* چهار سبد خالی */
-  const buckets = { 1: [], 2: [], 3: [], 4: [] };
-
-  const open = sortTasks(
-    Object.entries(TASKS).filter(([, t]) => !t.done)
-  );
-
-  for (const [id, task] of open) {
-    buckets[quadrantOf(task)].push(taskCard(id, task, true));
-  }
-
-  /* پر کردن هر ربع؛ اگر خالی بود پیام راهنما */
-  const hints = {
-    1: "هیچ بحرانی ندارید 👌",
-    2: "وظیفه استراتژیکی ثبت نشده",
-    3: "موردی برای واگذاری نیست",
-    4: "خالی — عالی است!"
-  };
-
-  for (let q = 1; q <= 4; q++) {
-    $("q" + q).innerHTML =
-      buckets[q].length > 0
-        ? buckets[q].join("")
-        : `<p class="quad-empty">${hints[q]}</p>`;
-  }
-}
-
-/* ============================================================
-   رندر مرکزی — بعد از هر تغییر داده صدا زده می‌شود
-   ============================================================ */
-function renderAll() {
-  renderBoard();
-  renderMatrix();
-  renderDashboard();   // قسمت د
-  renderTeam();        // قسمت هـ
-
-  /* تقویم فقط اگر تبش باز است بازسازی شود (بهینه‌سازی) */
-  if ($("p-cal").classList.contains("active")) {
-    renderCalendar();
-  }
-}
-/* ============================================================
-   وضعیت جاری تقویم — ماه و سالی که کاربر در حال دیدنش است
-   ============================================================ */
-let calYear, calMonth; // مقداردهی اولیه هنگام اولین رندر
-
-/* حرکت بین ماه‌ها */
-window.calPrev = () => {
-  calMonth--;
-  if (calMonth < 1) { calMonth = 12; calYear--; }
-  renderCalendar();
-};
-
-window.calNext = () => {
-  calMonth++;
-  if (calMonth > 12) { calMonth = 1; calYear++; }
-  renderCalendar();
-};
-
-window.calToday = () => {
-  const [y, m] = todayJ();
-  calYear = y;
-  calMonth = m;
-  renderCalendar();
-};
-
-/* ============================================================
-   محاسبه اینکه اول ماه شمسی، چه روزی از هفته است
-   خروجی: 0=شنبه ... 6=جمعه (منطبق بر تقویم ایرانی)
-   ============================================================ */
-function firstWeekdayOfMonth(jy, jm) {
-  const [gy, gm, gd] = j2g(jy, jm, 1);
-  const jsDay = new Date(gy, gm - 1, gd).getDay(); // 0=یکشنبه ... 6=شنبه
-  /* تبدیل به مبنای شنبه: شنبه=0 */
-  return (jsDay + 1) % 7;
-}
-
-/* ============================================================
-   رندر تقویم ماهانه شمسی
-   هر خانه: شماره روز + تعداد وظایف آن روز
-   ============================================================ */
-function renderCalendar() {
-  /* مقداردهی اولیه در اولین اجرا */
-  if (!calYear) {
-    const [y, m] = todayJ();
-    calYear = y;
-    calMonth = m;
-  }
-
-  $("calTitle").textContent = `${JMONTHS[calMonth - 1]} ${calYear}`;
-
-  const daysInMonth = jDayLen(calYear, calMonth);
-  const startPad    = firstWeekdayOfMonth(calYear, calMonth);
-  const todayK      = todayKey();
-
-  /* شمارش وظایف هر روز از این ماه */
-  const countByDay = {};
-  const doneByDay  = {};
-  for (const task of Object.values(TASKS)) {
-    const [ty, tm, td] = task.due.split("-").map(Number);
-    if (ty === calYear && tm === calMonth) {
-      countByDay[td] = (countByDay[td] || 0) + 1;
-      if (task.done) doneByDay[td] = (doneByDay[td] || 0) + 1;
-    }
-  }
-
-  /* سربرگ روزهای هفته */
-  const weekNames = ["ش", "ی", "د", "س", "چ", "پ", "ج"];
-  let html = weekNames
-    .map((n) => `<div class="cal-head">${n}</div>`)
-    .join("");
-
-  /* خانه‌های خالی ابتدای ماه */
-  for (let i = 0; i < startPad; i++) {
-    html += `<div class="cal-cell empty"></div>`;
-  }
-
-  /* خانه‌های روزهای ماه */
-  for (let d = 1; d <= daysInMonth; d++) {
-    const key      = jKey(calYear, calMonth, d);
-    const isToday  = key === todayK;
-    const total    = countByDay[d] || 0;
-    const done     = doneByDay[d] || 0;
-
-    /* نشانگر وظایف: سبز اگر همه انجام شده، آبی اگر باز مانده */
-    let badge = "";
-    if (total > 0) {
-      const allDone = done === total;
-      badge = `<span class="cal-badge ${allDone ? "all-done" : "pending"}">
-                 ${total}
-               </span>`;
-    }
-
-    html += `
-      <div class="cal-cell ${isToday ? "today" : ""}"
-           onclick="showDayTasks('${key}')">
-        <span class="cal-num">${d}</span>
-        ${badge}
-      </div>`;
-  }
-
-  $("calGrid").innerHTML = html;
-}
-
-/* ============================================================
-   نمایش وظایف یک روز خاص هنگام کلیک روی خانه تقویم
-   ============================================================ */
-window.showDayTasks = (dayKey) => {
-  const entries = sortTasks(
-    Object.entries(TASKS).filter(([, t]) => t.due === dayKey)
-  );
-
-  $("dayPanelTitle").textContent = "📅 " + jLabel(dayKey);
-
-  if (entries.length === 0) {
-    $("dayPanelBody").innerHTML =
-      `<p style="color:var(--dim);text-align:center">
-         وظیفه‌ای برای این روز نیست
-       </p>
-       <button class="btn primary" onclick="quickAddOnDay('${dayKey}')">
-         + افزودن وظیفه به این روز
-       </button>`;
-  } else {
-    $("dayPanelBody").innerHTML =
-      entries.map(([id, t]) => taskCard(id, t)).join("") +
-      `<button class="btn primary" onclick="quickAddOnDay('${dayKey}')">
-         + وظیفه جدید این روز
-       </button>`;
-  }
-
-  $("dayPanel").classList.add("open");
-};
-
-window.closeDayPanel = () => $("dayPanel").classList.remove("open");
-
-/* افزودن سریع وظیفه با سررسید از پیش تعیین‌شده */
-window.quickAddOnDay = (dayKey) => {
-  closeDayPanel();
-  openTask(null);
-  /* تنظیم تاریخ فرم روی روز انتخاب‌شده */
-  const [, m, d] = dayKey.split("-").map(Number);
-  $("fMonth").value = m;
-  $("fMonth").dispatchEvent(new Event("change")); // بازسازی روزها
-  $("fDay").value = d;
-};
-
-/* ============================================================
-   داشبورد آماری
-   ============================================================ */
-function renderDashboard() {
-  const all       = Object.values(TASKS);
-  const total     = all.length;
-  const doneAll   = all.filter((t) => t.done).length;
-  const openAll   = total - doneAll;
-  const todayK    = todayKey();
-  const lateCount = all.filter((t) => !t.done && t.due < todayK).length;
-  const todayCount= all.filter((t) => !t.done && t.due === todayK).length;
-
-  /* درصد کلی پیشرفت */
-  const pct = total > 0 ? Math.round((doneAll / total) * 100) : 0;
-
-  /* کارت‌های آماری بالای داشبورد */
-  $("statCards").innerHTML = `
-    <div class="stat">
-      <span class="stat-num">${openAll}</span>
-      <span class="stat-lbl">در جریان</span>
-    </div>
-    <div class="stat late">
-      <span class="stat-num">${lateCount}</span>
-      <span class="stat-lbl">عقب‌افتاده</span>
-    </div>
-    <div class="stat today">
-      <span class="stat-num">${todayCount}</span>
-      <span class="stat-lbl">امروز</span>
-    </div>
-    <div class="stat done">
-      <span class="stat-num">${doneAll}</span>
-      <span class="stat-lbl">تکمیل‌شده</span>
-    </div>`;
-
-  /* نوار پیشرفت کلی */
-  $("overallProg").innerHTML = `
-    <div class="prog-wrap big">
-      <div class="prog-bar" style="width:${pct}%"></div>
-    </div>
-    <span class="prog-txt">${pct}% کل وظایف تکمیل شده</span>`;
-
-  renderTrend();
-}
-
-/* ============================================================
-   نمودار عملکرد ۳۰ روز اخیر — میله‌ای ساده بدون کتابخانه
-   ارتفاع هر میله = تعداد وظایف تکمیل‌شده آن روز
-   ============================================================ */
-function renderTrend() {
-  const now = Date.now();
-  const DAY = 86400000;
-  const buckets = new Array(30).fill(0);
-
-  for (const task of Object.values(TASKS)) {
-    if (!task.done || !task.doneAt) continue;
-    const daysAgo = Math.floor((now - task.doneAt) / DAY);
-    if (daysAgo >= 0 && daysAgo < 30) {
-      buckets[29 - daysAgo]++; // ایندکس ۲۹ = امروز
-    }
-  }
-
-  const max = Math.max(1, ...buckets);
-
-  $("trendChart").innerHTML = buckets
-    .map((count, i) => {
-      const h = Math.round((count / max) * 100);
-      const isToday = i === 29;
-      return `
-        <div class="bar-col" title="${count} وظیفه">
-          <div class="bar ${isToday ? "today" : ""}"
-               style="height:${h}%"></div>
-        </div>`;
-    })
-    .join("");
-
-  const total30 = buckets.reduce((a, b) => a + b, 0);
-  $("trendSummary").textContent =
-    `${total30} وظیفه در ۳۰ روز اخیر تکمیل شده`;
-}
-/* ============================================================
-   مدیریت اعضای تیم
-   ============================================================ */
-window.addMember = async () => {
-  const name = $("memberInput").value.trim();
-  if (!name) return;
-
-  const id = "m" + Date.now();
-  await setDoc(doc(db, "users", UID, "members", id), { name: name });
-
-  $("memberInput").value = "";
-  toast("عضو جدید اضافه شد 👤");
-};
-
-window.removeMember = async (id) => {
-  /* شمارش وظایف باز این عضو برای هشدار */
-  const openCount = Object.values(TASKS)
-    .filter((t) => t.assignee === id && !t.done).length;
-
-  const msg = openCount > 0
-    ? `این عضو ${openCount} وظیفه باز دارد. حذف شود؟ (وظایف بدون مسئول می‌شوند)`
-    : "این عضو حذف شود؟";
-
-  if (!confirm(msg)) return;
-
-  /* آزادسازی وظایف واگذارشده به این عضو */
-  for (const [tid, t] of Object.entries(TASKS)) {
-    if (t.assignee === id) {
-      await persistTask(tid, { ...t, assignee: "" });
-    }
-  }
-
-  await deleteDoc(doc(db, "users", UID, "members", id));
-  toast("عضو حذف شد");
-};
-
-/* ============================================================
-   رندر تب تیم — کارت هر عضو با بار کاری
-   ============================================================ */
-function renderTeam() {
-  const container = $("teamList");
-  const entries = Object.entries(MEMBERS);
-
-  if (entries.length === 0) {
-    container.innerHTML = `
-      <div class="empty">
-        <p>👥 هنوز عضوی ثبت نشده</p>
-        <p style="font-size:12px;color:var(--dim)">
-          نام همکارتان را بالا وارد کنید</p>
-      </div>`;
-    return;
-  }
-
-  const todayK = todayKey();
-
-  container.innerHTML = entries.map(([id, m]) => {
-    const mine  = Object.values(TASKS).filter((t) => t.assignee === id);
-    const open  = mine.filter((t) => !t.done).length;
-    const late  = mine.filter((t) => !t.done && t.due < todayK).length;
-    const done  = mine.filter((t) => t.done).length;
-
-    /* نشانگر بار کاری */
-    let loadChip;
-    if (late > 0)       loadChip = `<span class="chip late">⏰ ${late} عقب‌افتاده</span>`;
-    else if (open >= 5) loadChip = `<span class="chip today">🔥 بار زیاد</span>`;
-    else if (open > 0)  loadChip = `<span class="chip">✳️ عادی</span>`;
-    else                loadChip = `<span class="chip done">✅ آزاد</span>`;
-
-    return `
-      <div class="member-card">
-        <div class="member-top">
-          <strong>${esc(m.name)}</strong>
-          ${loadChip}
-          <button class="icon-btn" onclick="removeMember('${id}')">✕</button>
-        </div>
-        <div class="member-stats">
-          <span>${open} باز</span> ·
-          <span>${done} تکمیل</span>
-        </div>
-      </div>`;
-  }).join("");
-}
-
-/* ============================================================
-   خروجی CSV — سازگار با اکسل فارسی (BOM برای UTF-8)
-   ============================================================ */
-window.exportCSV = () => {
-  const entries = Object.entries(TASKS);
-  if (entries.length === 0) {
-    toast("داده‌ای برای خروجی وجود ندارد");
-    return;
-  }
-
-  /* فرار دادن کاراکترهای خاص CSV */
-  const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-
-  const header = ["عنوان", "توضیح", "سررسید", "مسئول",
-                  "اهمیت", "فوریت", "تکرار", "وضعیت",
-                  "زیروظیفه‌ها", "پیشرفت زیروظیفه"].map(cell).join(",");
-
-  const rows = entries.map(([, t]) => {
-    const subs = t.subs || [];
-    const subsText = subs.map((s) => (s.done ? "✓ " : "✗ ") + s.text).join(" | ");
-    const subsPct = subs.length
-      ? Math.round(subs.filter((s) => s.done).length / subs.length * 100) + "%"
-      : "";
-    const repeatFa = { daily: "روزانه", weekly: "هفتگی", monthly: "ماهانه" };
-
-    return [
-      t.title,
-      t.desc || "",
-      jLabel(t.due),
-      t.assignee && MEMBERS[t.assignee] ? MEMBERS[t.assignee].name : "",
-      t.imp,
-      t.urg,
-      repeatFa[t.repeat] || "",
-      t.done ? "تکمیل‌شده" : "باز",
-      subsText,
-      subsPct
-    ].map(cell).join(",");
-  });
-
-  /* BOM ابتدای فایل → اکسل فارسی را درست نمایش می‌دهد */
-  const csv = "\uFEFF" + header + "\n" + rows.join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  const [y, m, d] = todayJ();
-  link.download = `tasks-${y}-${m}-${d}.csv`;
-  link.click();
-  URL.revokeObjectURL(link.href);
-
-  toast("فایل CSV دانلود شد 📊");
-};
-
-/* ============================================================
-   سیستم تب‌ها
-   ============================================================ */
-window.goTab = (name) => {
-  /* غیرفعال کردن همه تب‌ها و صفحه‌ها */
-  document.querySelectorAll(".tab").forEach((el) =>
-    el.classList.remove("active"));
-  document.querySelectorAll(".page").forEach((el) =>
-    el.classList.remove("active"));
-
-  $("tab-" + name).classList.add("active");
-  $("p-" + name).classList.add("active");
-
-  /* تقویم فقط هنگام باز شدن تبش رندر می‌شود (بهینه) */
-  if (name === "cal") renderCalendar();
-};
-
-/* ============================================================
-   راه‌اندازی اولیه — اتصال رویدادها
-   ============================================================ */
-function initUI() {
-  /* Enter در فیلد زیروظیفه = افزودن */
-  $("subInput").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); window.addSub(); }
-  });
-
-  /* Enter در فیلد عضو تیم = افزودن */
-  $("memberInput").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); window.addMember(); }
-  });
-
-  /* بستن مودال با کلیک روی پس‌زمینه تیره */
-  $("taskModal").addEventListener("click", (e) => {
-    if (e.target === $("taskModal")) closeModal();
-  });
-
-  /* بستن پنل روز با کلیک بیرون آن */
-  $("dayPanel").addEventListener("click", (e) => {
-    if (e.target === $("dayPanel")) closeDayPanel();
-  });
-
-  /* کلید Escape = بستن مودال‌ها */
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      closeModal();
-      closeDayPanel();
-    }
-  });
-}
-
-/* شروع */
-initUI();
+</body>
+</html>
