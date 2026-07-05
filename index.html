@@ -680,7 +680,191 @@ window._render = function(){
   if (window._render2) window._render2();   // گام ۵ اینجا وصل می‌شود
 };
 
-// ===== گام ۵ اینجا =====
+// ================================================================
+// گام ۵ : تقویم شمسی + یادآور مرورگر + داشبورد + تیم + آرشیو
+// ================================================================
+
+// ---------- تقویم شمسی ----------
+const JMONTH = ["فروردین","اردیبهشت","خرداد","تیر","مرداد","شهریور",
+                "مهر","آبان","آذر","دی","بهمن","اسفند"];
+const JDAY = ["ش","ی","د","س","چ","پ","ج"];
+
+// ماهِ در حال نمایش (شروع: ماه جاری)
+let CAL = (() => { const p = todayJ().split("/").map(Number); return { y: p[0], m: p[1] }; })();
+
+$("btnPrevM").onclick = () => { CAL.m--; if (CAL.m < 1){ CAL.m = 12; CAL.y--; } renderCal(); };
+$("btnNextM").onclick = () => { CAL.m++; if (CAL.m > 12){ CAL.m = 1; CAL.y++; } renderCal(); };
+
+// سال کبیسه شمسی
+const jLeap = jy => ((jy - (jy>0?474:473)) % 2820 + 474 + 38) * 682 % 2816 < 682;
+const jDays = (jy, jm) => jm <= 6 ? 31 : jm <= 11 ? 30 : (jLeap(jy) ? 30 : 29);
+
+function renderCal(){
+  $("calTitle").textContent = JMONTH[CAL.m-1] + " " + CAL.y;
+  // روز هفته‌ی اول ماه (شنبه = 0)
+  const [gy, gm, gd] = j2g(CAL.y, CAL.m, 1);
+  const start = (new Date(gy, gm-1, gd).getDay() + 1) % 7;
+  const total = jDays(CAL.y, CAL.m);
+  const today = todayJ();
+
+  let html = JDAY.map(d => `<div class="cal-h">${d}</div>`).join("");
+  for (let i = 0; i < start; i++) html += `<div class="cal-d empty"></div>`;
+
+  for (let d = 1; d <= total; d++){
+    const key = jStr(CAL.y, CAL.m, d);
+    const items = DATA.tasks.filter(t => t.due === key);
+    const dots = items.slice(0,3).map(t =>
+      `<span class="dot" style="background:${t.st==="done" ? "var(--ok)" :
+        (key < today ? "var(--bad)" : (TAGCOLOR[t.tag]||"var(--accent)"))}"></span>`).join("");
+    html += `
+      <div class="cal-d ${key===today?"today":""} ${items.length?"has":""}"
+           onclick="window._calDay('${key}')">
+        <b>${d}</b><div class="dots">${dots}</div>
+        ${items.length ? `<small>${items.length}</small>` : ""}
+      </div>`;
+  }
+  $("calGrid").innerHTML = html;
+}
+
+// کلیک روی روز: نمایش کارت‌های همان روز زیر تقویم
+window._calDay = key => {
+  const items = DATA.tasks.filter(t => t.due === key);
+  $("calDayTitle").textContent = "وظایف " + key;
+  $("calDayList").innerHTML = items.map(cardHTML).join("") ||
+    '<div style="color:var(--muted);font-size:12px">— وظیفه‌ای در این روز نیست —</div>';
+  hookDrag();
+};
+
+// ---------- یادآور مرورگر ----------
+$("btnNotif").onclick = async () => {
+  if (!("Notification" in window)){ alert("مرورگر شما اعلان ندارد"); return; }
+  const perm = await Notification.requestPermission();
+  if (perm === "granted"){
+    $("btnNotif").textContent = "🔔 یادآور فعال است";
+    new Notification("تسک‌آفرین", { body: "یادآورها فعال شد ✅" });
+    checkReminders();
+  } else alert("اجازه اعلان داده نشد — از تنظیمات مرورگر فعال کنید");
+};
+
+let notified = {};   // که هر وظیفه فقط یک بار اعلان بگیرد
+function checkReminders(){
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const today = todayJ();
+  DATA.tasks.forEach(t => {
+    if (t.st === "done" || !t.due || notified[t.id]) return;
+    if (t.due === today)
+      new Notification("📌 موعد امروز", { body: t.title });
+    else if (t.due < today)
+      new Notification("⚠️ عقب‌افتاده", { body: t.title + " — موعد: " + t.due });
+    else return;
+    notified[t.id] = true;
+  });
+}
+setInterval(checkReminders, 5 * 60 * 1000);   // هر ۵ دقیقه بررسی مجدد
+
+// ---------- داشبورد آماری ----------
+function renderDash(){
+  const T = DATA.tasks, today = todayJ();
+  const done  = T.filter(t => t.st === "done").length;
+  const doing = T.filter(t => t.st === "doing").length;
+  const late  = T.filter(t => t.due && t.due < today && t.st !== "done").length;
+
+  $("stTotal").textContent = T.length;
+  $("stDone").textContent  = done;
+  $("stDoing").textContent = doing;
+  $("stLate").textContent  = late;
+  const pct = T.length ? Math.round(done / T.length * 100) : 0;
+  $("stPct").textContent = pct + "٪";
+  $("stBar").style.width = pct + "%";
+
+  // عملکرد اعضا
+  $("dashMembers").innerHTML = DATA.members.map(m => {
+    const mine = T.filter(t => t.member === m);
+    const md = mine.filter(t => t.st === "done").length;
+    const p = mine.length ? Math.round(md / mine.length * 100) : 0;
+    return `<div class="stat-row"><span>👤 ${esc(m)}</span>
+      <div class="prog" style="flex:1"><div style="width:${p}%"></div></div>
+      <small>${md}/${mine.length}</small></div>`;
+  }).join("") || '<div style="color:var(--muted);font-size:12px">— عضوی ثبت نشده —</div>';
+
+  // توزیع برچسب‌ها
+  $("dashTags").innerHTML = Object.keys(TAGCOLOR).map(tg => {
+    const n = T.filter(t => t.tag === tg).length;
+    return n ? `<span class="tag" style="background:${TAGCOLOR[tg]}">${tg} (${n})</span>` : "";
+  }).join(" ") || '<div style="color:var(--muted);font-size:12px">— برچسبی استفاده نشده —</div>';
+}
+
+// ---------- مدیریت اعضای تیم ----------
+$("btnAddMem").onclick = () => {
+  const name = $("memIn").value.trim();
+  if (!name) return;
+  if (DATA.members.includes(name)){ alert("این نام قبلاً هست"); return; }
+  DATA.members.push(name);
+  $("memIn").value = "";
+  save();
+};
+$("memIn").onkeydown = e => { if (e.key === "Enter") $("btnAddMem").click(); };
+window._memDel = i => {
+  if (!confirm(`«${DATA.members[i]}» حذف شود؟ (وظایفش بدون مسئول می‌مانند)`)) return;
+  const name = DATA.members[i];
+  DATA.tasks.forEach(t => { if (t.member === name) t.member = ""; });
+  DATA.members.splice(i,1);
+  save();
+};
+function renderTeam(){
+  $("memList").innerHTML = DATA.members.map((m,i) => {
+    const n = DATA.tasks.filter(t => t.member === m).length;
+    return `<div class="mem"><span>👤 ${esc(m)}</span><small>${n} وظیفه</small>
+      <button onclick="window._memDel(${i})" style="border:none;background:none;color:var(--bad);cursor:pointer">✖</button></div>`;
+  }).join("") || '<div style="color:var(--muted)">اولین عضو تیم را اضافه کنید ⬆️</div>';
+}
+
+// ---------- آرشیو هوشمند ----------
+$("btnArchive").onclick = () => {
+  const doneT = DATA.tasks.filter(t => t.st === "done" && !t.rep);
+  if (!doneT.length){ alert("وظیفه انجام‌شده‌ای برای آرشیو نیست"); return; }
+  if (!confirm(doneT.length + " وظیفه انجام‌شده آرشیو شود؟")) return;
+  doneT.forEach(t => DATA.archive.push({ ...t, archivedAt: todayJ() }));
+  DATA.tasks = DATA.tasks.filter(t => !(t.st === "done" && !t.rep));
+  save();
+};
+window._unarch = id => {          // بازگردانی از آرشیو
+  const t = DATA.archive.find(x => x.id === id);
+  if (!t) return;
+  DATA.archive = DATA.archive.filter(x => x.id !== id);
+  DATA.tasks.push({ ...t, st: "done" });
+  save();
+};
+window._archDel = id => {
+  if (!confirm("برای همیشه حذف شود؟")) return;
+  DATA.archive = DATA.archive.filter(x => x.id !== id);
+  save();
+};
+function renderArchive(){
+  $("archCount").textContent = DATA.archive.length;
+  $("archList").innerHTML = DATA.archive.map(t => `
+    <div class="task done">
+      <div class="t-title">${esc(t.title)}</div>
+      <div class="t-meta">
+        ${t.due ? `<span>📅 ${t.due}</span>` : ""}
+        <span>🗄️ آرشیو: ${t.archivedAt}</span>
+      </div>
+      <div class="t-btns">
+        <button onclick="window._unarch('${t.id}')">↩️ بازگردانی</button>
+        <button onclick="window._archDel('${t.id}')" style="color:var(--bad)">🗑️ حذف دائم</button>
+      </div>
+    </div>`).join("") ||
+    '<div style="color:var(--muted)">آرشیو خالی است — از دکمه بالا استفاده کنید</div>';
+}
+
+// ---------- اتصال به رسم اصلی ----------
+window._render2 = function(){
+  renderCal();
+  renderDash();
+  renderTeam();
+  renderArchive();
+  checkReminders();
+};
 
 // ===== گام ۶ اینجا =====
 </script>
