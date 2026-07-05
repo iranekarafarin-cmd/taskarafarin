@@ -866,7 +866,73 @@ window._render2 = function(){
   checkReminders();
 };
 
-// ===== گام ۶ اینجا =====
+// ================================================================
+// گام ۶ : خروجی/ورودی JSON + میانبرهای صفحه‌کلید + صیقل نهایی
+// ================================================================
+
+// ---------- خروجی گرفتن (Backup) ----------
+$("btnExport").onclick = () => {
+  const blob = new Blob(
+    [JSON.stringify({ ...DATA, exportedAt: todayJ(), version: 6 }, null, 2)],
+    { type: "application/json" }
+  );
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `taskafarin-backup-${todayJ().replaceAll("/","-")}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+// ---------- بازیابی (Restore) ----------
+$("btnImport").onclick = () => $("importFile").click();
+$("importFile").onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const d = JSON.parse(reader.result);
+      if (!Array.isArray(d.tasks)) throw 0;
+      if (!confirm(`فایل شامل ${d.tasks.length} وظیفه است.\nداده‌های فعلی جایگزین می‌شوند — ادامه؟`)) return;
+      DATA.tasks   = d.tasks;
+      DATA.members = d.members || [];
+      DATA.archive = d.archive || [];
+      save();
+      alert("✅ بازیابی با موفقیت انجام شد");
+    }catch{ alert("❌ فایل معتبر نیست"); }
+  };
+  reader.readAsText(f, "utf-8");
+  e.target.value = "";
+};
+
+// ---------- میانبرهای صفحه‌کلید ----------
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") {
+    if (e.key === "Escape") e.target.blur();
+    return;
+  }
+  if (e.key === "Escape") closeModal();            // بستن مودال
+  if (e.key === "n" || e.key === "د") {            // وظیفه جدید (n)
+    e.preventDefault(); openModal();
+  }
+  if (e.key >= "1" && e.key <= "6") {              // پرش بین تب‌ها
+    const tabs = document.querySelectorAll(".tab");
+    tabs[+e.key - 1]?.click();
+  }
+});
+
+// ---------- پاک‌سازی خودکار اعلان‌های تکراری در نیمه‌شب ----------
+setInterval(() => {
+  const now = new Date();
+  if (now.getHours() === 0 && now.getMinutes() < 5) notified = {};
+}, 5 * 60 * 1000);
+
+// ---------- نمایش نسخه در فوتر ----------
+$("appFooter").innerHTML =
+  `تسک‌آفرین نسخه ۶ — ${todayJ()} — <span style="color:var(--ok)">● متصل</span>`;
+
+console.log("%c تسک‌آفرین v6 — همه ماژول‌ها بارگذاری شد ✅",
+  "background:#4f46e5;color:#fff;padding:4px 10px;border-radius:6px");
 </script>
 
 </body>
