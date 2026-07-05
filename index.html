@@ -334,7 +334,14 @@ const firebaseConfig = {
 
 const fbApp = initializeApp(firebaseConfig);
 const auth  = getAuth(fbApp);
-const db    = getFirestore(fbApp);
+import { initializeFirestore, persistentLocalCache, persistentSingleTabManager,
+         doc, setDoc, onSnapshot }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const db = initializeFirestore(app, {
+  experimentalAutoDetectLongPolling: true,          // عبور از قطعی‌های شبکه ایران
+  localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() })
+});
 
 // ---------- داده‌های برنامه (در حافظه) ----------
 let DATA = { tasks: [], members: [], archive: [] };
