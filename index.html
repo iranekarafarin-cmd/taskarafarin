@@ -399,6 +399,23 @@ $("btnLogin").onclick = async () => {
     await signInWithEmailAndPassword(auth, $("aEmail").value.trim(), $("aPass").value);
   } catch(e){ authMsg(faErr(e.code)); }
 };
+$("btnLogin").onclick = async () => {
+  ...
+};   // ← پایان کد ورود با ایمیل
+
+// ▼▼ کد جدید را اینجا بچسبانید ▼▼
+$("btnGoogle").onclick = async () => {
+  try {
+    await signInWithPopup(auth, new GoogleAuthProvider());
+  } catch (e) {
+    if (e.code === "auth/popup-blocked")
+      alert("مرورگر پنجره ورود را بست — Popup را اجازه دهید");
+    else if (e.code === "auth/unauthorized-domain")
+      alert("دامنه سایت را در Authorized domains فایربیس اضافه کنید");
+    else
+      alert("ورود ناموفق: " + e.code);
+  }
+};
 
 // ---------- خروج ----------
 $("btnLogout").onclick = () => signOut(auth);
